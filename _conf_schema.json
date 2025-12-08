@@ -1,0 +1,56 @@
+{
+    "gopeed_host": {
+        "title": "Gopeed 服务器地址",
+        "description": "例如 http://127.0.0.1:9999",
+        "type": "string",
+        "default": "http://127.0.0.1:9999"
+    },
+    "api_token": {
+        "title": "API Token (必填)",
+        "description": "Gopeed 的 API Token，必须填写。",
+        "type": "string",
+        "default": ""
+    },
+    "download_path": {
+        "title": "下载保存目录",
+        "description": "Gopeed 服务端保存文件的路径 (如 D:\\Downloads)。",
+        "type": "string",
+        "default": ""
+    },
+    "upload_size_limit_mb": {
+        "title": "自动上传限制 (MB)",
+        "description": "文件大小超过此值时，只通知下载完成，不进行上传。",
+        "type": "int",
+        "default": 500
+    },
+    "webhook_server_port": {
+        "title": "Webhook 服务端端口 (必填)",
+        "description": "Bot 监听 Webhook 的端口,需在 Gopeed 中配置回调。",
+        "type": "int",
+        "default": 0
+    },
+    "auto_delete_hours": {
+        "title": "文件自动删除时间 (小时)",
+        "description": "下载完成后多少小时自动删除本地文件。0 表示永不删除。",
+        "type": "int",
+        "default": 24
+    },
+    "remote_path_prefix": {
+        "title": "路径映射 - 远程 (Gopeed)",
+        "description": "Gopeed 看到的路径 (如 /app/downloads)。",
+        "type": "string",
+        "default": ""
+    },
+    "local_path_prefix": {
+        "title": "路径映射 - 本地 (Bot)",
+        "description": "Bot 看到的路径 (如 D:\\Downloads)。",
+        "type": "string",
+        "default": ""
+    },
+    "auto_download_mode": {
+        "title": "自动嗅探模式",
+        "description": "开启后无需指令，直接发链接即可下载。",
+        "type": "bool",
+        "default": false
+    }
+}

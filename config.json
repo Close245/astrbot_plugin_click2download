@@ -1,0 +1,11 @@
+{
+    "gopeed_host": "http://127.0.0.1:9999",
+    "api_token": "104857600",
+    "download_path": "D://DownloadFiles",
+    "upload_size_limit_mb": 500,
+    "remote_path_prefix": "",
+    "local_path_prefix": "",
+    "auto_download_mode": false,
+    "webhook_server_port": 18080,
+    "auto_delete_hours": 24
+}
