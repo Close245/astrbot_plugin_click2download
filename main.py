@@ -1,6 +1,7 @@
 from astrbot.api.all import *
 from astrbot.api.event import filter
 from astrbot.api.message_components import Plain
+from astrbot.api.star import StarTools
 from pydantic import BaseModel
 from aiohttp import web
 import aiohttp
@@ -13,7 +14,7 @@ import html
 from pathlib import Path
 from urllib.parse import unquote
 
-# 导入新模块
+# 导入子模块
 from .history import HistoryManager
 from .cleaner import FileCleaner
 
@@ -25,63 +26,58 @@ class GopeedConfig(BaseModel):
     upload_size_limit_mb: int = 500
     remote_path_prefix: str = ""
     local_path_prefix: str = ""
+    napcat_path_prefix: str = "" # NapCat 路径映射
     auto_download_mode: bool = False
     webhook_server_port: int = 0 
     auto_delete_hours: int = 24
 
 # ================= 插件主逻辑 =================
-@register("astrbot_plugin_gopeed", "YourName", "Gopeed 终极版", "3.1.1", "修复数据覆盖BUG")
+@register("astrbot_plugin_click2download", "YourName", "Gopeed 下载助手", "3.6.0", "规范化重构版")
 class GopeedPlugin(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
         
-        self.plugin_dir = os.path.dirname(__file__)
-        self.config_path = os.path.join(self.plugin_dir, "config.json")
-        
-        self.data_dir = os.path.join(os.getcwd(), "data", "plugin_data", "astrbot_plugin_click2download")
-        
-        if not os.path.exists(self.data_dir):
-            try:
-                os.makedirs(self.data_dir, exist_ok=True)
-                logger.info(f"[Gopeed] 已创建数据持久化目录: {self.data_dir}")
-            except Exception as e:
-                logger.error(f"[Gopeed] 创建数据目录失败: {e}，将回退至插件目录")
-                self.data_dir = self.plugin_dir
+        # 1. 【规范修复】使用 StarTools 获取标准数据目录
+        # 路径通常为: data/plugin_data/astrbot_plugin_click2download/
+        self.data_dir = StarTools.get_data_dir("astrbot_plugin_click2download")
+        if not self.data_dir.exists():
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[Gopeed] 数据目录已初始化: {self.data_dir}")
 
-        self.tasks_record_path = os.path.join(self.data_dir, "context_map.json")
+        self.tasks_record_path = self.data_dir / "context_map.json"
         
         self.server_runner = None
         self.cached_bot = None
         
+        # 2. 【规范修复】配置加载
+        # 不再回写 config.json 到源码目录，避免污染环境
         if config:
-            try:
-                self.config = GopeedConfig(**config)
-                self._save_config_manual(self.config)
-            except Exception as e:
-                logger.error(f"[Gopeed] 配置注入失败: {e}")
-                self.config = self._load_config()
+            self.config = GopeedConfig(**config)
         else:
-            self.config = self._load_config()
+            self.config = GopeedConfig()
+            logger.warning("[Gopeed] 未检测到注入配置，使用默认值")
 
+        # 3. 模块初始化
         self.history = HistoryManager(self.data_dir)
+        self.cleaner = FileCleaner(self.history)
         
-        self.cleaner = FileCleaner(self.history, logger)
         asyncio.create_task(self.cleaner.start_loop(self._get_current_config))
-
         self.tasks_context_map = self._load_context_map()
 
         if self.config.webhook_server_port > 0:
             asyncio.create_task(self._start_webhook_server())
         else:
-            logger.critical("[Gopeed] ❌ 错误: Webhook端口未配置! 插件无法工作。请在配置中设置 webhook_server_port。")
+            logger.critical("[Gopeed] ❌ 错误: Webhook端口未配置! 插件无法接收通知。")
 
-    def __del__(self):
+    # 【规范修复】使用 terminate 钩子替代 __del__ 进行资源清理
+    async def terminate(self):
+        logger.info("[Gopeed] 正在停止服务...")
         if self.server_runner:
-            asyncio.create_task(self.server_runner.cleanup())
+            await self.server_runner.cleanup()
         if hasattr(self, 'cleaner'):
             self.cleaner.stop()
 
-    # --- 核心辅助 ---
+    # --- 辅助方法 ---
     def _get_bot(self):
         if self.cached_bot: return self.cached_bot
         try:
@@ -94,20 +90,26 @@ class GopeedPlugin(Star):
         except: pass
         return None
 
-    # --- 上下文映射 ---
+    def _get_current_config(self) -> GopeedConfig:
+        return self.config
+
+    # --- 上下文管理 ---
     def _load_context_map(self) -> dict:
-        if os.path.exists(self.tasks_record_path):
+        if self.tasks_record_path.exists():
             try:
                 with open(self.tasks_record_path, "r", encoding="utf-8") as f:
                     return json.load(f)
-            except: return {}
+            except Exception as e:
+                logger.error(f"[Gopeed] 读取上下文失败: {e}")
+                return {}
         return {}
 
     def _save_context_map(self):
         try:
             with open(self.tasks_record_path, "w", encoding="utf-8") as f:
                 json.dump(self.tasks_context_map, f, indent=4)
-        except: pass
+        except Exception as e:
+            logger.error(f"[Gopeed] 保存上下文失败: {e}")
 
     def _register_context(self, task_id: str, event: AstrMessageEvent):
         if not task_id: return
@@ -128,9 +130,15 @@ class GopeedPlugin(Star):
             "timestamp": int(time.time())
         }
         self._save_context_map()
-        logger.info(f"[Gopeed] 上下文已注册: {safe_id} -> {target_type}:{target_id}")
+        logger.info(f"[Gopeed] 任务注册: {safe_id} -> {target_type}:{target_id}")
 
-    # --- HTTP Server ---
+    def _remove_context(self, task_id):
+        safe_id = str(task_id).strip()
+        if safe_id in self.tasks_context_map:
+            del self.tasks_context_map[safe_id]
+            self._save_context_map()
+
+    # --- Webhook 服务 ---
     async def _start_webhook_server(self):
         app = web.Application()
         app.router.add_post('/webhook', self._handle_webhook_request)
@@ -143,7 +151,7 @@ class GopeedPlugin(Star):
         try:
             site = web.TCPSite(self.server_runner, '0.0.0.0', port)
             await site.start()
-            logger.info(f"[Gopeed] Webhook 服务启动于端口: {port}")
+            logger.info(f"[Gopeed] Webhook 服务启动: 0.0.0.0:{port}")
         except Exception as e:
             logger.error(f"[Gopeed] Webhook 启动失败: {e}")
 
@@ -167,26 +175,19 @@ class GopeedPlugin(Star):
             
             task_id = str(raw_id).strip()
 
-            # 【核心修复】解决竞态条件：只读内存，绝不重载文件
-            max_wait_retries = 10 # 延长等待至 10 秒
+            max_wait_retries = 10 
             found_context = False
             
             for i in range(max_wait_retries):
                 if task_id in self.tasks_context_map:
                     found_context = True
                     break
-                
-                # 删除所有 _load_context_map 调用
-                # 内存中的 self.tasks_context_map 是最权威的
-                
                 if i % 2 == 0:
-                    logger.warning(f"[Gopeed] 等待任务上下文同步 ({i+1}/{max_wait_retries})... ID: {task_id}")
+                    logger.warning(f"[Gopeed] 等待上下文同步 ({i+1}/{max_wait_retries})... ID: {task_id}")
                 await asyncio.sleep(1)
 
             if not found_context:
-                # 打印当前内存里有的 ID，方便调试
-                keys = list(self.tasks_context_map.keys())
-                logger.error(f"[Gopeed] 放弃处理未知任务: {task_id}。当前内存缓存: {keys}")
+                logger.error(f"[Gopeed] 放弃处理未知任务: {task_id}")
                 return web.Response(text="Ignored", status=200)
 
             task_context = self.tasks_context_map[task_id]
@@ -195,12 +196,10 @@ class GopeedPlugin(Star):
 
             if event_type == "DOWNLOAD_START":
                 await self._send_text_msg(task_context, f"▶️ 开始下载: {file_name}")
-                
             elif event_type == "DOWNLOAD_FAILED":
                 err = task_info.get("error", "未知错误")
                 await self._send_text_msg(task_context, f"❌ 下载失败: {file_name}\n原因: {err}")
                 self._remove_context(task_id)
-
             elif event_type == "DOWNLOAD_DONE":
                 remote_dir = opts.get("path")
                 res = task_info.get("meta", {}).get("res", {})
@@ -215,6 +214,7 @@ class GopeedPlugin(Star):
             logger.error(f"[Gopeed] Webhook Error: {e}")
             return web.Response(text="Error", status=500)
 
+    # --- 任务完成与上传 ---
     async def _process_download_done(self, task_context: dict, task_id: str, remote_dir: str, file_name: str, file_size_bytes: int):
         config = self._get_current_config()
 
@@ -224,7 +224,6 @@ class GopeedPlugin(Star):
             remote_full_path = f"{remote_dir}/{file_name}"
 
         local_path = self._map_path(remote_full_path, config)
-        
         await asyncio.sleep(1) 
 
         if not os.path.exists(local_path):
@@ -246,57 +245,7 @@ class GopeedPlugin(Star):
         
         self._remove_context(task_id)
 
-    def _remove_context(self, task_id):
-        safe_id = str(task_id).strip()
-        if safe_id in self.tasks_context_map:
-            del self.tasks_context_map[safe_id]
-            self._save_context_map()
-
-    # --- 消息发送 ---
-    async def _send_text_msg(self, context: dict, message: str):
-        bot = self._get_bot()
-        if not bot: return
-        try:
-            if context.get("type") == "group":
-                await bot.api.call_action("send_group_msg", group_id=context.get("id"), message=message)
-            else:
-                await bot.api.call_action("send_private_msg", user_id=context.get("id"), message=message)
-        except Exception as e:
-            logger.error(f"[Gopeed] Send Error: {e}")
-
-    async def _upload_via_napcat(self, context: dict, file_path: str):
-        bot = self._get_bot()
-        if not bot: return
-        
-        abs_path = os.path.abspath(file_path)
-        name = os.path.basename(file_path)
-        
-        try:
-            if context.get("type") == "group":
-                await bot.api.call_action("upload_group_file", group_id=context.get("id"), file=abs_path, name=name)
-            else:
-                await bot.api.call_action("upload_private_file", user_id=context.get("id"), file=abs_path, name=name)
-        except Exception as e:
-            await self._send_text_msg(context, f"❌ 上传失败: {e}")
-
-    # --- 基础配置与工具 ---
-    def _load_config(self) -> GopeedConfig:
-        if os.path.exists(self.config_path):
-            try:
-                with open(self.config_path, "r", encoding="utf-8") as f:
-                    return GopeedConfig.model_validate_json(f.read())
-            except: return GopeedConfig()
-        return GopeedConfig()
-
-    def _save_config_manual(self, config: GopeedConfig):
-        try:
-            with open(self.config_path, "w", encoding="utf-8") as f:
-                f.write(config.model_dump_json(indent=4))
-        except: pass
-
-    def _get_current_config(self) -> GopeedConfig:
-        return self._load_config()
-
+    # --- 辅助工具 ---
     def _map_path(self, gopeed_path: str, config: GopeedConfig) -> str:
         path_str = gopeed_path.replace("\\", "/")
         if not config.remote_path_prefix or not config.local_path_prefix:
@@ -308,6 +257,22 @@ class GopeedPlugin(Star):
             logger.info(f"[Gopeed] Path Map: {gopeed_path} -> {local_path}")
             return str(local_path)
         return str(Path(path_str))
+
+    def _map_path_for_napcat(self, local_path: str, config: GopeedConfig) -> str:
+        if not config.napcat_path_prefix:
+            return os.path.abspath(local_path)
+        
+        local_abs = os.path.abspath(local_path).replace("\\", "/")
+        local_prefix = config.local_path_prefix.replace("\\", "/")
+        napcat_prefix = config.napcat_path_prefix.replace("\\", "/")
+        
+        if local_abs.lower().startswith(local_prefix.lower()):
+            relative = local_abs[len(local_prefix):].lstrip("/")
+            napcat_path = f"{napcat_prefix}/{relative}"
+            logger.info(f"[Gopeed] NapCat Map: {local_abs} -> {napcat_path}")
+            return napcat_path
+        
+        return local_abs
 
     def _sanitize_filename(self, url: str) -> str:
         try:
@@ -323,6 +288,37 @@ class GopeedPlugin(Star):
             return name
         except: return f"download_{int(time.time())}.dat"
 
+    # --- 发送逻辑 ---
+    async def _send_text_msg(self, context: dict, message: str):
+        bot = self._get_bot()
+        if not bot: return
+        try:
+            if context.get("type") == "group":
+                await bot.api.call_action("send_group_msg", group_id=context.get("id"), message=message)
+            else:
+                await bot.api.call_action("send_private_msg", user_id=context.get("id"), message=message)
+        except Exception as e:
+            logger.error(f"[Gopeed] Send Error: {e}")
+
+    async def _upload_via_napcat(self, context: dict, file_path: str):
+        bot = self._get_bot()
+        if not bot: return
+        
+        config = self._get_current_config()
+        target_path = self._map_path_for_napcat(file_path, config)
+        name = os.path.basename(file_path)
+        
+        logger.info(f"[Gopeed] Uploading: {target_path}")
+
+        try:
+            if context.get("type") == "group":
+                await bot.api.call_action("upload_group_file", group_id=context.get("id"), file=target_path, name=name)
+            else:
+                await bot.api.call_action("upload_private_file", user_id=context.get("id"), file=target_path, name=name)
+        except Exception as e:
+            await self._send_text_msg(context, f"❌ 上传失败: {e}")
+
+    # --- 任务创建 ---
     async def _add_task(self, url: str, user_id: str) -> tuple[bool, str, str]:
         config = self._get_current_config()
         if not config.api_token: return False, "缺少 api_token", ""
@@ -348,12 +344,10 @@ class GopeedPlugin(Star):
                         task_id = ""
                         try:
                             if text:
-                                try:
-                                    data = json.loads(text)
-                                    if isinstance(data, str): task_id = data
-                                    elif isinstance(data, dict): task_id = data.get("id") or data.get("data")
-                                except: task_id = text.strip('"')
-                        except: pass
+                                data = json.loads(text)
+                                if isinstance(data, str): task_id = data
+                                elif isinstance(data, dict): task_id = data.get("id") or data.get("data")
+                        except: task_id = text.strip('"')
 
                         if task_id:
                             self.history.add_record(str(task_id), url, str(user_id), unique_name)

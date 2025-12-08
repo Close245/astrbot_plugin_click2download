@@ -1,64 +1,54 @@
-import json
+import asyncio
 import os
 import time
-from typing import Dict, Any
+from astrbot.api.all import logger
+from .history import HistoryManager
 
-class HistoryManager:
-    def __init__(self, base_dir: str):
-        self.history_file = os.path.join(base_dir, "history.json")
-        self.data = self._load()
+class FileCleaner:
+    def __init__(self, history_manager: HistoryManager):
+        self.history = history_manager
+        self.running = False
 
-    def _load(self) -> Dict[str, Any]:
-        if os.path.exists(self.history_file):
+    async def start_loop(self, get_config_func):
+        self.running = True
+        logger.info("[Gopeed Cleaner] 自动清理服务已启动")
+        
+        while self.running:
             try:
-                with open(self.history_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
+                config = get_config_func()
+                hours = config.auto_delete_hours
+                
+                if hours <= 0:
+                    await asyncio.sleep(3600)
+                    continue
 
-    def _save(self):
+                expiration_seconds = hours * 3600
+                now = int(time.time())
+                
+                tasks = self.history.get_all_completed_tasks()
+                
+                for task_id, info in tasks.items():
+                    end_ts = info.get("end_ts", 0)
+                    local_path = info.get("local_path", "")
+                    
+                    if end_ts > 0 and (now - end_ts) > expiration_seconds:
+                        self._perform_delete(task_id, local_path)
+
+            except Exception as e:
+                logger.error(f"[Gopeed Cleaner] 循环异常: {e}")
+            
+            await asyncio.sleep(600)
+
+    def _perform_delete(self, task_id: str, path: str):
+        if not path: return
+
         try:
-            with open(self.history_file, "w", encoding="utf-8") as f:
-                json.dump(self.data, f, indent=4, ensure_ascii=False)
+            if os.path.exists(path):
+                os.remove(path)
+                logger.info(f"[Gopeed Cleaner] 已删除过期文件: {path}")
+            self.history.mark_deleted(task_id)
         except Exception as e:
-            print(f"[Gopeed History] 保存失败: {e}")
+            logger.error(f"[Gopeed Cleaner] 删除失败 {path}: {e}")
 
-    def add_record(self, task_id: str, url: str, user_id: str, file_name: str = ""):
-        """任务开始：记录基础信息"""
-        self.data[task_id] = {
-            "task_id": task_id,
-            "url": url,
-            "user_id": str(user_id),
-            "file_name": file_name,
-            "local_path": "",
-            "size_bytes": 0,
-            "start_ts": int(time.time()),
-            "end_ts": 0,
-            "deleted_ts": 0,
-            "status": "downloading"
-        }
-        self._save()
-
-    def update_completion(self, task_id: str, local_path: str, size_bytes: int):
-        """任务完成：记录结束时间、路径和大小"""
-        if task_id in self.data:
-            self.data[task_id]["local_path"] = local_path
-            self.data[task_id]["size_bytes"] = size_bytes
-            self.data[task_id]["end_ts"] = int(time.time())
-            self.data[task_id]["status"] = "completed"
-            self._save()
-
-    def mark_deleted(self, task_id: str):
-        """文件删除：记录删除时间"""
-        if task_id in self.data:
-            self.data[task_id]["deleted_ts"] = int(time.time())
-            self.data[task_id]["status"] = "deleted"
-            self._save()
-
-    def get_all_completed_tasks(self):
-        """获取所有已完成且未删除的任务"""
-        return {
-            tid: info for tid, info in self.data.items() 
-            if info["status"] == "completed" and info["deleted_ts"] == 0
-        }
+    def stop(self):
+        self.running = False
