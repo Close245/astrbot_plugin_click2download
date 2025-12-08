@@ -1,138 +1,174 @@
-# **astrbot_plugin_click2download**
+# AstrBot Plugin Click2Download 🚀
 
-**\[中文\]**
+<div align="center">
 
-一个功能强大的 AstrBot 插件，将您的聊天机器人转变为 Gopeed 下载器的远程控制中心。  
-支持 Webhook 实时推送、任务持久化、断点续传、自动回传 以及 过期文件自动清理。  
-\</div\>
+**将您的聊天机器人打造为全能下载中心**
 
-## **✨ 核心特性 (Features)**
+远程控制 Gopeed • 实时 Webhook 推送 • 自动回传 QQ • 历史记录 • 自动清理
 
-* ⚡ **Webhook 驱动**：利用 Gopeed 的 Webhook 功能实现零延迟的任务完成通知，告别低效轮询。  
-* 🔄 **持久化记忆**：Bot 重启不丢失任务上下文。无论何时下载完成，Bot 都能准确找到当初发送指令的用户并推送文件。  
-* 📂 **智能回传**：  
-  * 小文件（\< 500MB，可配置）：自动上传至 QQ/Telegram。  
-  * 大文件：仅发送保存路径，防止上传超时或刷屏。  
-* 🧹 **自动清理**：内置清理线程，自动删除下载超过 24 小时（可配置）的本地文件，节省服务器空间。  
-* 🐳 **Docker 友好**：完美的路径映射支持，轻松解决 Docker 容器内外路径不一致的问题。  
-* 🕵️ **自动嗅探**：支持识别聊天记录中的链接并自动建立下载任务（可选）。
+</div>
 
-## **🛠️ 安装与配置 (Installation)**
+---
 
-### **1\. 安装插件**
+## 🇨🇳 简体中文 (Chinese)
 
-将本仓库克隆或解压至 AstrBot 的 data/plugins/astrbot\_plugin\_gopeed/ 目录下。
+### 📖 简介 (Introduction)
 
-### **2\. 依赖安装**
+**astrbot_plugin_click2download** 是一个专为 AstrBot 设计的高级插件，深度集成了 **Gopeed** 下载器。
 
-插件依赖 aiohttp 和 pydantic，AstrBot 环境通常已内置。如有缺失请运行：
+它不仅仅是一个简单的下载指令封装，而是一个完整的下载生命周期管理系统。通过 Webhook 技术，它实现了毫秒级的下载完成通知，并能根据文件大小智能决策是直接上传文件还是仅发送路径。
 
-pip install aiohttp pydantic
+### ✨ 核心特性 (Features)
 
-### **3\. 配置文件 (config.json)**
+| 特性 | 说明 | 优势 |
+| :--- | :--- | :--- |
+| **⚡ Webhook 驱动** | 利用 Webhook 实现下载完成的实时响应 | 拒绝低效的轮询 (Polling)，响应速度达到毫秒级 |
+| **🔄 上下文持久化** | 记录任务发起的群组/用户，重启不丢失 | 即使 Bot 在下载中途重启，下载完成后依然能准确推送给原用户 |
+| **📂 智能回传** | < 500MB 直接上传；> 500MB 发送路径 | 兼顾便捷性与服务器稳定性，防止大文件导致超时或网络拥堵 |
+| **🐳 Docker 友好** | 内置强大的路径映射 (Path Mapping) | 完美解决 Docker 容器内外路径不一致的痛点 |
+| **🧹 自动清理** | 自动删除超过指定时间（默认 24h）的文件 | 维护服务器磁盘整洁，无需手动管理 |
+| **📊 历史记录** | 完整的 JSON 数据库记录 | 包含文件名、大小、耗时、用户ID等详细信息 |
 
-首次运行插件后，会自动在 data/plugins/astrbot\_plugin\_gopeed/ 下生成 config.json。或者您可以在 AstrBot 的 Web 管理面板中进行配置。
+### 📂 目录结构 (Structure)
 
-| 配置项 | 必填 | 默认值 | 说明 |
-| :---- | :---- | :---- | :---- |
-| gopeed\_host | ✅ | http://127.0.0.1:9999 | Gopeed 服务端地址 |
-| api\_token | ✅ | \- | Gopeed 的 API Token (在 Gopeed 设置中获取) |
-| webhook\_server\_port | ✅ | 0 | **必须修改为非 0 端口** (如 18080)，Bot 将监听此端口接收通知 |
-| upload\_size\_limit\_mb | ❌ | 500 | 自动上传的最大文件大小 (MB) |
-| auto\_delete\_hours | ❌ | 24 | 下载完成后多少小时自动删除文件 (0 为不删除) |
-| download\_path | ❌ | \- | 指定 Gopeed 的下载目录 |
-| remote\_path\_prefix | ❌ | \- | (Docker必填) Gopeed 容器内看到的路径 |
-| local\_path\_prefix | ❌ | \- | (Docker必填) Bot 容器/宿主机看到的路径 |
+```text
+astrbot_plugin_click2download/
+├── main.py             # 核心逻辑 (Webhook服务, API调用)
+├── history.py          # 历史记录数据库管理
+├── cleaner.py          # 过期文件自动清理线程
+├── config.json         # 用户配置文件 (自动生成)
+├── _conf_schema.json   # 配置校验文件
+├── __init__.py         # 包标识
+└── README.md           # 说明文档
+```
 
-### **4\. Gopeed 端设置 (重要)**
+### 🛠️ 快速开始 (Getting Started)
 
-为了让 Bot 接收通知，您**必须**在 Gopeed 中配置 Webhook：
+#### 1. 安装插件
+将本仓库解压至 AstrBot 的插件目录：
+```bash
+./data/plugins/astrbot_plugin_click2download/
+```
+或在插件商城中搜索“链接下载”
 
-1. 打开 Gopeed Web 界面。  
-2. 进入 **设置 (Settings)** \-\> **高级设置 (Advanced)**。  
-3. 在 **Webhook** 一栏填写 Bot 的监听地址：  
-   http://\<Bot所在IP\>:\<webhook\_server\_port\>/webhook
+#### 2. 配置 AstrBot
+启动一次 AstrBot 以生成配置文件，然后在 Web 管理面板或 `config.json` 中修改：
 
-   *例如: http://192.168.1.5:18080/webhook*  
-4. 点击测试，如果 Bot 后台日志提示收到请求，则配置成功。
+| 配置项 (Key) | 必填 | 默认值 | 说明 |
+| :--- | :---: | :---: | :--- |
+| `gopeed_host` | ✅ | `http://127.0.0.1:9999` | Gopeed 服务端 API 地址 |
+| `api_token` | ✅ | - | **重要**：Gopeed 的 API Token (在 Gopeed 设置中获取) |
+| `webhook_server_port` | ✅ | `0` | **必须修改** (如 18080)，Bot 监听此端口接收 Gopeed 通知 |
+| `upload_size_limit_mb` | ❌ | `500` | 超过此大小的文件不自动上传，仅通知路径 |
+| `auto_delete_hours` | ❌ | `24` | 下载完成后多少小时自动删除文件 (0 为永久保留) |
+| `remote_path_prefix` | ❌ | - | (Docker用) **Gopeed 容器内**看到的下载路径前缀 |
+| `local_path_prefix` | ❌ | - | (Docker用) **Bot 容器/宿主机**对应的真实路径前缀 |
 
-## **🐳 Docker / 跨容器部署指南**
+#### 3. 配置 Gopeed Webhook (关键步骤)
+为了让 Bot 知道下载何时完成，您必须在 Gopeed 中配置回调：
 
-如果您的 Bot 和 Gopeed 运行在 Docker 中，请务必阅读本节。
+1.  打开 Gopeed Web 界面。
+2.  进入 **设置 (Settings)** -> **高级设置 (Advanced)**。
+3.  找到 **Webhook** 选项。
+4.  填入 Bot 的监听地址：
+    ```text
+    http://<Bot所在IP>:<webhook_server_port>/webhook
+    
+    # 示例
+    [http://192.168.1.5:18080/webhook]
+    ```
+5.  点击“测试连接”，如果 Bot 后台日志提示收到请求，则配置成功。
 
-### **1\. 端口映射**
+---
 
-Bot 需要监听 Webhook 端口（如 18080），请确保在启动 AstrBot 容器时映射了该端口：
+### 🐳 Docker 部署指南 (Docker Setup)
 
-docker run \-p 6125:6125 \-p 18080:18080 ...
+在 Docker 环境下，**路径映射**和**网络互通**是成功的关键。
 
-### **2\. 路径映射 (Path Mapping)**
+#### 1. 端口映射
+Bot 需要暴露 Webhook 端口供 Gopeed 访问。
 
-Bot 需要读取 Gopeed 下载的文件进行上传。如果它们在不同的环境，路径会不一致。
+```bash
+docker run -d \
+  --name astrbot \
+  -p 6125:6125 \
+  -p 18080:18080 \  # <--- 必须映射 Webhook 端口
+  -v /mnt/data:/data \
+  astrbot/astrbot
+```
 
-**假设场景：**
+#### 2. 共享下载目录 (路径映射)
+Bot 必须能读取到 Gopeed 下载的文件。
+假设宿主机真实下载目录为：`/home/user/downloads`
 
-* **宿主机下载目录**：/mnt/data/downloads  
-* **Gopeed 容器挂载**：-v /mnt/data/downloads:/app/downloads  
-* **AstrBot 容器挂载**：-v /mnt/data/downloads:/bot\_data/downloads
+| 角色 | 挂载参数 (`-v`) | 容器内路径 | 说明 |
+| :--- | :--- | :--- | :--- |
+| **Gopeed** | `-v /home/user/downloads:/app/downloads` | `/app/downloads` | 下载器将文件写入此路径 |
+| **AstrBot** | `-v /home/user/downloads:/bot_downloads` | `/bot_downloads` | 机器人从此路径读取文件 |
 
-**此时文件路径差异：**
+**此时插件配置 (`config.json`) 应填写：**
 
-* Gopeed 告诉 Bot 文件在：/app/downloads/video.mp4  
-* Bot 实际能访问的路径是：/bot\_data/downloads/video.mp4
-
-**插件配置应为：**
-
-{  
-  "remote\_path\_prefix": "/app/downloads",  
-  "local\_path\_prefix": "/bot\_data/downloads"  
+```json
+{
+  "remote_path_prefix": "/app/downloads",
+  "local_path_prefix": "/bot_downloads"
 }
+```
+*插件会自动将路径前缀进行替换，确保 Bot 能找到文件。*
 
-插件会自动将路径前缀进行替换，确保 Bot 能找到文件。
+---
 
-## **📊 数据记录 (Data Persistence)**
+### 📊 数据记录 (Data Persistence)
 
-为了防止插件更新导致数据丢失，所有的历史记录数据将存储在 AstrBot 的公共数据目录下：  
-./data/plugin\_data/astrbot\_plugin\_click2download/
+为了防止插件更新导致数据丢失，所有的历史记录数据将存储在 AstrBot 的公共数据目录下：
 
-* history.json: 完整的下载历史记录（包含时间戳、大小、用户ID等）。  
-* context\_map.json: 任务上下文映射（用于断电重启后的回复）。
+`./data/plugin_data/astrbot_plugin_click2download/`
 
-# **English**
+* **history.json**: 完整的下载历史记录（包含时间戳、大小、用户ID等）。
+* **context_map.json**: 任务上下文映射（用于断电重启后的回复）。
 
-A comprehensive AstrBot plugin that turns your chatbot into a remote controller for Gopeed downloader. Features **Webhook notifications**, **Persistence**, **Auto-upload**, and **Auto-cleaning**.
+---
 
-## **✨ Key Features**
+## 🇺🇸 English
 
-* **Webhook Driven**: Instant notifications via Gopeed Webhook, no polling required.  
-* **Persistence**: Remembers the task context (User/Group) even after a bot restart.  
-* **Smart Upload**: Automatically uploads files smaller than the limit; notifies path for larger files.  
-* **Auto Cleaner**: Automatically deletes local files after a configurable retention period (default 24h).  
-* **Docker Ready**: Supports path mapping for complex Docker/Remote setups.
+A comprehensive AstrBot plugin that turns your chatbot into a remote controller for Gopeed downloader. Features Webhook notifications, Persistence, Auto-upload, and Auto-cleaning.
 
-## **🛠️ Setup**
+### ✨ Key Features
 
-### **1\. Configure Plugin**
+| Feature | Description |
+| :--- | :--- |
+| **Webhook Driven** | Instant notifications via Gopeed Webhook, no polling required. |
+| **Persistence** | Remembers the task context (User/Group) even after a bot restart. |
+| **Smart Upload** | Automatically uploads files smaller than the limit; notifies path for larger files. |
+| **Auto Cleaner** | Automatically deletes local files after a configurable retention period (default 24h). |
+| **Docker Ready** | Supports path mapping for complex Docker/Remote setups. |
 
-Edit config.json or use the AstrBot WebUI:
+### 🛠️ Setup
 
-* api\_token: **Required**. Get this from Gopeed settings.  
-* webhook\_server\_port: **Required**. Local port for the bot to listen on (e.g., 18080).  
-* auto\_delete\_hours: Time in hours to keep files (0 to disable).
+#### 1. Configure Plugin
+Edit `config.json` or use the AstrBot WebUI:
 
-### **2\. Configure Gopeed**
+| Key | Required | Description |
+| :--- | :---: | :--- |
+| `api_token` | Yes | Get this from Gopeed settings. |
+| `webhook_server_port` | Yes | Local port for the bot to listen on (e.g., 18080). |
+| `auto_delete_hours` | No | Time in hours to keep files (0 to disable). |
 
-1. Go to Gopeed **Settings** \-\> **Advanced**.  
-2. Set **Webhook** URL to: http://\<Bot\_IP\>:\<webhook\_server\_port\>/webhook.  
-3. Click test to verify.
+#### 2. Configure Gopeed
+1.  Go to Gopeed **Settings** -> **Advanced**.
+2.  Set Webhook URL to: `http://<Bot_IP>:<webhook_server_port>/webhook`.
+3.  Click **test** to verify.
 
-### **3\. Docker Path Mapping**
-
+#### 3. Docker Path Mapping
 If running in Docker, map the paths so the bot can access files downloaded by Gopeed.
 
-* remote\_path\_prefix: The path Gopeed sees inside its container.  
-* local\_path\_prefix: The path AstrBot sees (must map to the same physical location).
+| Config Key | Description |
+| :--- | :--- |
+| `remote_path_prefix` | The path Gopeed sees inside its container. |
+| `local_path_prefix` | The path AstrBot sees (must map to the same physical location). |
 
-## **📄 License**
+---
+
+### 📄 License
 
 MIT License
