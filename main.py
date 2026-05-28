@@ -214,9 +214,15 @@ class GopeedPlugin(Star):
             logger.error(f"[Gopeed] Webhook Error: {e}")
             return web.Response(text="Error", status=500)
 
-    # --- 任务完成与上传 ---
+        # --- 任务完成与上传 ---
     async def _process_download_done(self, task_context: dict, task_id: str, remote_dir: str, file_name: str, file_size_bytes: int):
         config = self._get_current_config()
+
+        if not remote_dir:
+            await self._send_text_msg(task_context, f"❌ 下载完成但未收到保存路径: {file_name}\n请检查 Gopeed Webhook payload")
+            self._remove_context(task_id)
+            return
+
 
         if remote_dir.endswith("/") or remote_dir.endswith("\\"):
             remote_full_path = f"{remote_dir}{file_name}"

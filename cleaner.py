@@ -45,11 +45,11 @@ class FileCleaner:
 
         try:
             if os.path.exists(path):
-                # 【核心修改】删除前先尝试赋予写权限，防止因安全模式(600)导致无法删除
+                # 【跨平台修复】确保文件可写后再删除
                 try:
-                    os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
-                except:
-                    pass # 如果改不动权限，还是尝试硬删
+                    os.chmod(path, stat.S_IWUSR | stat.S_IRUSR)
+                except Exception:
+                    pass
                 
                 os.remove(path)
                 logger.info(f"[Gopeed Cleaner] 已删除过期文件: {path}")
